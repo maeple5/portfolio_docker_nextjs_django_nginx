@@ -1,0 +1,117 @@
+version: '3'
+
+services:
+  backend-server:
+    restart: always
+    container_name: nginx_back
+    build:
+      context: .
+      dockerfile: ./.docker/nginx/backend/Dockerfile
+    volumes:
+      - ./nginx/backend/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/backend/html:/usr/share/nginx/html
+      - ./backend/django/static:/app/static
+    ports:
+      - "8080:80"
+    depends_on:
+      - web-back
+    networks:
+      - backend_network
+
+  web-back:
+    restart: unless-stopped
+    container_name: django-backend
+    env_file: .env
+    build: 
+      context: .
+      dockerfile: ./.docker/django/Dockerfile
+    volumes:
+      - ./backend/django:/app
+      - ./backend/django/static:/app/static
+    command: >
+        sh -c "python manage.py collectstatic --noinput &&
+               python manage.py migrate && 
+               gunicorn --bind :8000 config.wsgi:application"
+    environment:
+      CHOKIDAR_USEPOLLING: true
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.local}
+      SECRET_KEY: ${SECRET_KEY:-config.settings.local}
+      DEBUG: ${DEBUG:-config.settings.local}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-config.settings.local}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-config.settings.local}
+    depends_on:
+      - db
+    networks:
+      - backend_network
+
+  db:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: ./.docker/db/Dockerfile
+    container_name: mypg
+    ports:
+      - 5433:5432
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: my_db
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./db/postgres/init:/docker-entrypoint-initdb.d
+      - ./db/postgres:/var/lib/postgresql/data
+      - ./db/logs:/var/log
+    networks:
+      - backend_network
+# https://amateur-engineer.com/docker-compose-postgresql/
+
+  frontend-server:
+    restart: always
+    container_name: nginx_front
+    build:
+      context: .
+      dockerfile: ./.docker/nginx/frontend/Dockerfile
+    volumes:
+      - ./nginx/frontend/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/frontend/html:/usr/share/nginx/html
+    ports:
+      - "80:80"
+    depends_on:
+      - web-front
+    networks:
+      - frontend_network
+
+  web-front:
+    restart: unless-stopped
+    container_name: node-front
+    build:
+      context: .
+      dockerfile: ./.docker/node.js/Dockerfile
+    tty: true
+    volumes:
+      - ./frontend/next-app:/app
+    # ここのバインド方法によって起動時間が大幅に変わる。以下の書き方でも良い
+    # volumes:
+    #   - type: bind
+    #     source: ./frontend/web-front
+    #     target: /home/app/frontend
+    #   - type: volume
+    #     source: node_modules_volume
+    #     target: /home/app/frontend/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    ports:
+      - "3000:3000"
+    networks:
+      - frontend_network
+
+
+networks:
+  backend_network:
+    driver: bridge
+  frontend_network:
+    driver: bridge
+volumes:
+  static_volume:
+  yarn-cache:
+  node_modules_volume:
