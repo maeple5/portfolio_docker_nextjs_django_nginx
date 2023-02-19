@@ -1,0 +1,7 @@
+{
+	"preferences": {
+		"eslint": true,
+		"srcDir": true,
+		"importAlias": "@/*"
+	}
+}
